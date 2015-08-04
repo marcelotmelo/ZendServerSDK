@@ -13,11 +13,12 @@ class ZpkInvokableScriptdirTest extends ZpkTestCase
     {
         parent::setUp();
 
+        //if DIRECTORY_SEPARATOR is not used, the test does not work on windows
         $this->includes = array(
-            'dir1/test1.php',
+            'dir1' . DIRECTORY_SEPARATOR .  'test1.php',
             'dir2',
-            'dir2/test1.php',
-            'dir2/test2.php',
+            'dir2' . DIRECTORY_SEPARATOR .  'test1.php',
+            'dir2' . DIRECTORY_SEPARATOR .  'test2.php',
         );
 
         foreach ($this->includes as $include) {
