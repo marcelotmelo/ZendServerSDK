@@ -218,7 +218,7 @@ class ZpkInvokable
         }
 
         if (!is_dir($sourceFolder)) {
-            throw new RuntimeException('The source folder parameter must be real directory.');
+            throw new RuntimeException('The source folder parameter must be a real directory.');
         }
 
         ErrorHandler::start();
