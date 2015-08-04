@@ -323,22 +323,27 @@ class ZpkInvokable
                 $excludes = $properties[$type.'.excludes'];
             }
 
-            $excludedEndings = array();
-            foreach ($excludes as $exclude) {
+            $excludedPatterns = array();
+            $normalizedExclude = array();
+            foreach ($excludes as $index => $exclude) {
                 $exclude = trim($exclude);
-                $exclude = rtrim($exclude, '/'); # no trailing slashes
-                if (strlen($exclude) == 0) {
-                    continue;
-                }
-                // We support **/<something> syntax. It means all entries ending with <something>
-                // will be excluded from the list of files
-                if (preg_match("/^\*\*\/(.*?)$/", $exclude, $matches)) {
-                    $excludedEndings[$matches[1]] = strlen($matches[1]);
+                $exclude = rtrim($exclude, '/'); // no trailing slashes
+                if (strlen($exclude) > 0) {
+                    if (preg_match("/^\*\*\/(.*?)$/", $exclude, $matches)) {
+                        $excludedPatterns[$exclude] = $matches[1];
+                        unset($excludes[$index]);
+                    } else {
+                        $normalizedExclude[$index] =
+                        $this->normalizePath($exclude);
+                    }
                 }
             }
-
+            $excludes = $normalizedExclude;
+            $excludedExpression =
+                $this->createRegexExpression($excludedPatterns);
             foreach ($paths as $localPath => $zpkPath) {
-                $this->addPathToZpk($zpk, $sourceFolder, $localPath, $zpkPath, $excludes, $excludedEndings);
+                $this->addPathToZpk($zpk, $sourceFolder, $localPath, $zpkPath,
+                    $excludes, $excludedExpression);
             }
         }
 
@@ -439,7 +444,7 @@ class ZpkInvokable
 
     protected function normalizePath($path)
     {
-        return preg_replace('/(\/{2,})/', '/', $path);
+        return preg_replace('/((\/{2,})|(\\\\{1,}))/', '/', $path);
     }
 
     protected function fixZipPath($path)
@@ -456,17 +461,19 @@ class ZpkInvokable
      * @param ZipArchive $zpk
      * @param string     $directory
      * @param string     $baseDir
+     * @param string $excludedExpression
      */
-    protected function addPathToZpk($zpk, $sourceFolder, $localPath, $zpkPath, $excludes = array(), $excludedEndings=array())
+    protected function addPathToZpk($zpk, $sourceFolder, $localPath, $zpkPath,
+        $excludes = array(), $excludedExpression = null)
     {
         $localPath = $this->normalizePath($localPath);
         if (in_array($localPath, $excludes)) {
             return;
         }
-
-        $parts = explode('/', trim($localPath, '/'));
-        if (in_array($parts[count($parts)-1], $excludedEndings)) {
-            return;
+        if ($excludedExpression) {
+            if (preg_match($excludedExpression, $localPath)) {
+                return;
+            }
         }
 
         $fullPath = $sourceFolder.'/'.$localPath;
@@ -479,7 +486,7 @@ class ZpkInvokable
         }
 
         if (!is_dir($fullPath)) {
-            throw new RuntimeException("Path '$fullPath' is not existing. Verify your deployment.properties!");
+            throw new RuntimeException("Path '$fullPath' does not exist. Verify your deployment.properties!");
         }
 
         // we are dealing with directories
@@ -491,7 +498,7 @@ class ZpkInvokable
                 continue;
             }
 
-            foreach ($excludedEndings as $exclude => $length) {
+            foreach ($excludes as $exclude => $length) {
                 if ($name === $exclude) {
                     unset($entries[$idx]);
                 }
@@ -503,7 +510,8 @@ class ZpkInvokable
         }
 
         foreach ($entries as $name) {
-            $this->addPathToZpk($zpk, $sourceFolder, $localPath.'/'.$name, $zpkPath.'/'.$name, $excludes, $excludedEndings);
+            $this->addPathToZpk($zpk, $sourceFolder, $localPath . '/' . $name,
+                $zpkPath . '/' . $name, $excludes, $excludedExpression);
         }
     }
 
@@ -627,5 +635,30 @@ class ZpkInvokable
         }
 
         return $meta;
+    }
+
+    /**
+     * Creates a regular expression to be matched if \*\*\/<something> pattern
+     * was defined on apddirs.exclude or scriptsdir.exclude.
+     *
+     * @param array $excludedPatterns
+     *            The array with patterns
+     */
+    private function createRegexExpression($excludedPatterns = array())
+    {
+        if (! empty($excludedPatterns)) {
+            $expression = "(";
+            $index = 0;
+            foreach ($excludedPatterns as $exclude => $pattern) {
+                if (substr_compare($pattern, ".", 0, 1) >= 0) {
+                    $pattern = "\\" . $pattern;
+                }
+                $expression = $expression . ($index > 0 ? "|" : "") . $pattern;
+                $index ++;
+            }
+            $expression = $expression . ")";
+            return "/^(.*)(\\/|\\\\)" . $expression . "((\\/|\\\\)(.*))?$/";
+        }
+        return "";
     }
 }
